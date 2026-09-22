@@ -1,3 +1,5 @@
+const fuzzball = require('fuzzball');
+
 const TITLES = new Set([
   'mr',
   'mrs',
@@ -124,44 +126,14 @@ function levenshtein(a, b) {
   return dp[a.length][b.length];
 }
 
-function tokenOverlapScore(leftTokens, rightTokens) {
-  const leftSet = new Set(leftTokens);
-  const rightSet = new Set(rightTokens);
-  const union = new Set([...leftSet, ...rightSet]);
-
-  if (!union.size) return 0;
-
-  let common = 0;
-  for (const token of union) {
-    if (leftSet.has(token) && rightSet.has(token)) common += 1;
-  }
-
-  return common / union.size;
-}
-
 function fuzzyLogicScore(left, right) {
   if (!left.tokens.length || !right.tokens.length) return 0;
 
-  const leftParts = identifyNameParts(left.tokens);
-  const rightParts = identifyNameParts(right.tokens);
-
-  const surnameMatch = leftParts.surname === rightParts.surname ? 1 : 0;
-  const firstExact = leftParts.given === rightParts.given ? 1 : 0;
-  const initialMatch = leftParts.given[0] === rightParts.given[0] ? 1 : 0;
-
-  const givenSimilarity = jaroWinkler(leftParts.given, rightParts.given);
-  const overlap = tokenOverlapScore(left.tokens, right.tokens);
-  const fullSimilarity = jaroWinkler(left.normalized, right.normalized);
-
-  const weighted =
-    surnameMatch * 40 +
-    firstExact * 20 +
-    (firstExact ? 0 : initialMatch * 18) +
-    givenSimilarity * 10 +
-    overlap * 7 +
-    fullSimilarity * 5;
-
-  return Math.max(0, Math.min(100, Math.round(weighted)));
+  return Math.max(
+    fuzzball.ratio(left.normalized, right.normalized),
+    fuzzball.token_set_ratio(left.normalized, right.normalized),
+    fuzzball.partial_ratio(left.normalized, right.normalized)
+  );
 }
 
 function jevScore(leftNormalized, rightNormalized) {
