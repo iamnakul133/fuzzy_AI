@@ -20,5 +20,8 @@
     "jaro-winkler",
     "levenshtein"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "fuzzball": "^2.2.6"
+  }
 }
