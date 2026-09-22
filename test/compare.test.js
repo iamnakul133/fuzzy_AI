@@ -41,6 +41,9 @@ test('falls back to JEV when fuzzball score is below 50', () => {
   assert.equal(result.method, 'jev_fallback');
   assert.ok(result.fuzzyScore < 50);
   assert.ok(result.jevScore !== null);
+  assert.equal(result.jevDecision.engine, 'typesafe_system_one');
+  assert.equal(typeof result.jevDecision.confidenceScore, 'number');
+  assert.equal(Array.isArray(result.jevDecision.reasons), true);
 });
 
 test('rejects clearly different names', () => {
