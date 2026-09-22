@@ -1,0 +1,24 @@
+{
+  "name": "fuzzy-ai-name-matcher",
+  "version": "1.0.0",
+  "description": "KYC/bank person-name matching with fuzzy + JEV fallback",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "type": "commonjs",
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "kyc",
+    "name-matching",
+    "fuzzy",
+    "jaro-winkler",
+    "levenshtein"
+  ],
+  "license": "MIT"
+}
