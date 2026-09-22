@@ -17,8 +17,8 @@
     "kyc",
     "name-matching",
     "fuzzy",
-    "jaro-winkler",
-    "levenshtein"
+    "typesafe-ai",
+    "probabilistic-decisioning"
   ],
   "license": "MIT",
   "dependencies": {

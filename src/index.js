@@ -54,76 +54,19 @@ function identifyNameParts(tokens) {
   };
 }
 
-function jaro(a, b) {
-  if (a === b) return 1;
-  if (!a.length || !b.length) return 0;
+function isInitialCompatible(leftGiven, rightGiven) {
+  if (!leftGiven || !rightGiven) return false;
+  if (leftGiven === rightGiven) return true;
 
-  const matchDistance = Math.floor(Math.max(a.length, b.length) / 2) - 1;
-  const aMatches = new Array(a.length).fill(false);
-  const bMatches = new Array(b.length).fill(false);
-
-  let matches = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    const start = Math.max(0, i - matchDistance);
-    const end = Math.min(i + matchDistance + 1, b.length);
-
-    for (let j = start; j < end; j += 1) {
-      if (bMatches[j] || a[i] !== b[j]) continue;
-      aMatches[i] = true;
-      bMatches[j] = true;
-      matches += 1;
-      break;
-    }
+  if (leftGiven.length === 1 && rightGiven.length > 1) {
+    return leftGiven === rightGiven[0];
   }
 
-  if (!matches) return 0;
-
-  let transpositions = 0;
-  let k = 0;
-
-  for (let i = 0; i < a.length; i += 1) {
-    if (!aMatches[i]) continue;
-    while (!bMatches[k]) k += 1;
-    if (a[i] !== b[k]) transpositions += 1;
-    k += 1;
+  if (rightGiven.length === 1 && leftGiven.length > 1) {
+    return rightGiven === leftGiven[0];
   }
 
-  return (
-    (matches / a.length + matches / b.length + (matches - transpositions / 2) / matches) /
-    3
-  );
-}
-
-function jaroWinkler(a, b) {
-  const j = jaro(a, b);
-  if (j === 0) return 0;
-
-  let prefix = 0;
-  const maxPrefix = 4;
-  for (let i = 0; i < Math.min(maxPrefix, a.length, b.length); i += 1) {
-    if (a[i] !== b[i]) break;
-    prefix += 1;
-  }
-
-  return j + prefix * 0.1 * (1 - j);
-}
-
-function levenshtein(a, b) {
-  const rows = a.length + 1;
-  const cols = b.length + 1;
-  const dp = Array.from({ length: rows }, () => new Array(cols).fill(0));
-
-  for (let i = 0; i < rows; i += 1) dp[i][0] = i;
-  for (let j = 0; j < cols; j += 1) dp[0][j] = j;
-
-  for (let i = 1; i < rows; i += 1) {
-    for (let j = 1; j < cols; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
-    }
-  }
-
-  return dp[a.length][b.length];
+  return false;
 }
 
 function fuzzyLogicScore(left, right) {
@@ -136,15 +79,46 @@ function fuzzyLogicScore(left, right) {
   );
 }
 
-function jevScore(leftNormalized, rightNormalized) {
-  if (!leftNormalized || !rightNormalized) return 0;
+function jevDecision(left, right, fuzzyScore, jevPassThreshold) {
+  const leftParts = identifyNameParts(left.tokens);
+  const rightParts = identifyNameParts(right.tokens);
+  const surnameMatch = leftParts.surname && leftParts.surname === rightParts.surname;
+  const givenMatch = isInitialCompatible(leftParts.given, rightParts.given);
+  const sharedTokens = left.tokens.filter((token) => right.tokens.includes(token)).length;
+  const tokenOverlap = sharedTokens / Math.max(left.tokens.length, right.tokens.length, 1);
 
-  const jw = jaroWinkler(leftNormalized, rightNormalized);
-  const distance = levenshtein(leftNormalized, rightNormalized);
-  const maxLen = Math.max(leftNormalized.length, rightNormalized.length) || 1;
-  const levSimilarity = 1 - distance / maxLen;
+  let confidence = 0.05;
+  if (surnameMatch) confidence += 0.45;
+  if (givenMatch) confidence += 0.28;
+  if (tokenOverlap >= 0.5) confidence += 0.15;
+  if (fuzzyScore >= 35) confidence += 0.07;
+  if (leftParts.surname && rightParts.surname && !surnameMatch) confidence -= 0.2;
+  if (!givenMatch && leftParts.given && rightParts.given) confidence -= 0.1;
 
-  return Math.round((jw * 0.65 + levSimilarity * 0.35) * 100);
+  const confidenceScore = Math.max(0, Math.min(99, Math.round(confidence * 100)));
+  const confidenceBand =
+    confidenceScore >= 80 ? 'high' : confidenceScore >= 60 ? 'medium' : 'low';
+  const samePerson = confidenceScore >= jevPassThreshold;
+  const reasons = [];
+
+  if (surnameMatch) reasons.push('surname_match');
+  if (givenMatch) reasons.push('given_or_initial_match');
+  if (tokenOverlap >= 0.5) reasons.push('token_overlap_support');
+  if (!reasons.length) reasons.push('insufficient_structured_alignment');
+
+  return {
+    engine: 'typesafe_system_one',
+    samePerson,
+    confidence: confidenceBand,
+    confidenceScore,
+    signals: {
+      fuzzyScore,
+      surnameMatch,
+      givenMatch,
+      tokenOverlap: Number(tokenOverlap.toFixed(2))
+    },
+    reasons
+  };
 }
 
 function compare(leftName, rightName, options = {}) {
@@ -164,6 +138,7 @@ function compare(leftName, rightName, options = {}) {
       score: 0,
       fuzzyScore: 0,
       jevScore: null,
+      jevDecision: null,
       normalized: { left: left.normalized, right: right.normalized },
       parts: {
         left: identifyNameParts(left.tokens),
@@ -175,14 +150,15 @@ function compare(leftName, rightName, options = {}) {
   const fuzzyScore = fuzzyLogicScore(left, right);
 
   if (fuzzyScore < fuzzyToJevFallbackThreshold) {
-    const fallbackScore = jevScore(left.normalized, right.normalized);
+    const decision = jevDecision(left, right, fuzzyScore, jevPassThreshold);
 
     return {
-      samePerson: fallbackScore >= jevPassThreshold,
+      samePerson: decision.samePerson,
       method: 'jev_fallback',
-      score: fallbackScore,
+      score: decision.confidenceScore,
       fuzzyScore,
-      jevScore: fallbackScore,
+      jevScore: decision.confidenceScore,
+      jevDecision: decision,
       normalized: { left: left.normalized, right: right.normalized },
       parts: {
         left: identifyNameParts(left.tokens),
@@ -197,6 +173,7 @@ function compare(leftName, rightName, options = {}) {
     score: fuzzyScore,
     fuzzyScore,
     jevScore: null,
+    jevDecision: null,
     normalized: { left: left.normalized, right: right.normalized },
     parts: {
       left: identifyNameParts(left.tokens),
@@ -210,5 +187,5 @@ module.exports = {
   normalizeName,
   identifyNameParts,
   fuzzyLogicScore,
-  jevScore
+  jevDecision
 };
